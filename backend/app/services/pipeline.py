@@ -49,20 +49,43 @@ class PipelineService:
         if self._initialized:
             return
         
+        print(f"🔧 Initializing pipeline v5...")
+        print(f"📍 Model path: {settings.model_weights_path}")
+        print(f"📍 Model exists: {settings.model_weights_path.exists()}")
+        
+        # Check if model weights exist
+        if not settings.model_weights_path.exists():
+            print("❌ Model weights not found! Attempting download...")
+            try:
+                from download_model import download_model_weights
+                success = download_model_weights()
+                if not success:
+                    raise FileNotFoundError(f"Model weights not found: {settings.model_weights_path}")
+            except Exception as e:
+                raise FileNotFoundError(f"Failed to download model weights: {e}")
+        
         # Import pipeline modules
-        from fpn_inference import FPNInference
+        try:
+            from fpn_inference import FPNInference
+            print("✅ Pipeline modules imported successfully")
+        except ImportError as e:
+            raise ImportError(f"Failed to import pipeline modules: {e}")
         
         self.device = settings.get_device()
-        print(f"Initializing pipeline v5 on device: {self.device}")
+        print(f"🖥️ Initializing on device: {self.device}")
         
         # Load model
-        self.fpn_model = FPNInference(
-            model_path=str(settings.model_weights_path),
-            device=self.device
-        )
+        try:
+            self.fpn_model = FPNInference(
+                model_path=str(settings.model_weights_path),
+                device=self.device
+            )
+            print("✅ FPN model loaded successfully")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load FPN model: {e}")
         
         self._initialized = True
-        print("Pipeline initialized successfully!")
+        print("🎉 Pipeline initialized successfully!")
     
     def _mask_to_preview_base64(self, mask: np.ndarray) -> str:
         """Convert segmentation mask to colored preview image (base64)"""
@@ -122,13 +145,19 @@ class PipelineService:
         Yields SSE events for each step.
         """
         try:
+            print(f"🚀 Starting processing for job: {job_id}")
+            print(f"📁 Image path: {image_path}")
+            print(f"📁 Output dir: {output_dir}")
+            
             # Ensure initialized
             await self.initialize()
+            print("✅ Pipeline initialized for processing")
             
             # Import pipeline v5 modules (after path is set)
             from segmentation_postprocess import SegmentationPostProcessor
             from rectangular_room_fitter import RectangularRoomFitter
             from wall_based_extrusion import WallDetector, WallBasedExtruder, WallOBJExporter
+            print("✅ Pipeline modules imported for processing")
             
             loop = asyncio.get_event_loop()
             

@@ -168,6 +168,14 @@ export function useConversion() {
   function handleSSEMessage(data) {
     console.log('SSE message received:', data)
     
+    // Check if it's an error event
+    if (data.type === 'error' || data.error === true) {
+      console.error('SSE Error received:', data)
+      error.value = data.message || 'Processing failed'
+      isProcessing.value = false
+      return
+    }
+    
     // Check if it's a step update or final result
     if (data.name && data.status) {
       // Step update

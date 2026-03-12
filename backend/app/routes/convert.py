@@ -54,13 +54,28 @@ async def convert_floorplan(file: UploadFile = File(...)):
     
     # Return SSE stream
     async def event_generator():
-        async for event_data in pipeline_service.process_image(
-            image_path=upload_path,
-            job_id=job_id,
-            output_dir=job_output_dir
-        ):
-            # EventSourceResponse expects dict with 'data' key or just the data
-            yield {"data": json.dumps(event_data)}
+        try:
+            print(f"🎬 Starting SSE generator for job: {job_id}")
+            async for event_data in pipeline_service.process_image(
+                image_path=upload_path,
+                job_id=job_id,
+                output_dir=job_output_dir
+            ):
+                print(f"📡 Sending SSE event: {event_data.get('type', 'unknown')}")
+                # EventSourceResponse expects dict with 'data' key or just the data
+                yield {"data": json.dumps(event_data)}
+        except Exception as e:
+            print(f"❌ Error in SSE generator: {e}")
+            import traceback
+            traceback.print_exc()
+            # Send error event
+            error_event = {
+                "type": "error",
+                "job_id": job_id,
+                "message": str(e),
+                "error": True
+            }
+            yield {"data": json.dumps(error_event)}
     
     return EventSourceResponse(event_generator())
 

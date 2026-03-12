@@ -25,6 +25,17 @@ async def lifespan(app: FastAPI):
     print(f"📂 Upload dir: {settings.upload_dir.absolute()}")
     print(f"📂 Output dir: {settings.output_dir.absolute()}")
     
+    # Check model weights
+    try:
+        from download_model import check_model_weights
+        model_ready = check_model_weights()
+        if model_ready:
+            print("✅ Model weights are ready!")
+        else:
+            print("⚠️ Model weights not found - processing will fail!")
+    except Exception as e:
+        print(f"❌ Error checking model weights: {e}")
+    
     yield
     
     # Shutdown
@@ -65,7 +76,33 @@ async def root():
         "endpoints": {
             "convert": "POST /api/v1/convert",
             "download": "GET /api/v1/download/{job_id}/{filename}",
-            "health": "GET /api/v1/health",
+            "health": "GET /health",
             "warmup": "POST /api/v1/warmup"
+        }
+    }
+
+@app.get("/health")
+async def health_check():
+    """Detailed health check endpoint"""
+    import os
+    from pathlib import Path
+    
+    model_exists = settings.model_weights_path.exists() if settings.model_weights_path else False
+    
+    return {
+        "status": "healthy",
+        "model_weights": {
+            "path": str(settings.model_weights_path),
+            "exists": model_exists,
+            "size_mb": round(settings.model_weights_path.stat().st_size / 1024 / 1024, 2) if model_exists else None
+        },
+        "directories": {
+            "uploads": settings.upload_dir.exists(),
+            "outputs": settings.output_dir.exists()
+        },
+        "environment": {
+            "debug": settings.debug,
+            "has_model_url": bool(settings.model_weights_url),
+            "device": settings.get_device().type
         }
     }
