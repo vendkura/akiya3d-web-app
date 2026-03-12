@@ -45,12 +45,6 @@ class Settings(BaseSettings):
         "https://floorplan-3d-converter.vercel.app",  # Your specific frontend URL
     ]
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        # Exclude cors_origins from environment variable parsing to avoid JSON issues
-        env_ignore = {"cors_origins"}
-    
     # Model Configuration
     # Path to the trained model weights directory  
     project_root: Optional[Path] = None
