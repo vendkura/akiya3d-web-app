@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     port: int = int(os.getenv("PORT", "8000"))  # Use PORT from environment (Render/Heroku) or default to 8000
     
     # CORS Settings (for Vue frontend)
+    # Don't set via environment variables - use code defaults
     cors_origins: list[str] = [
         "http://localhost:5173",  # Vite dev server
         "http://localhost:3000",  # Alternative dev port
@@ -41,7 +42,14 @@ class Settings(BaseSettings):
         # Production URLs - update these when you deploy
         "https://*.vercel.app",  # All Vercel subdomains 
         "https://*.netlify.app",  # All Netlify subdomains (backup)
+        "https://floorplan-3d-converter.vercel.app",  # Your specific frontend URL
     ]
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        # Exclude cors_origins from environment variable parsing to avoid JSON issues
+        env_ignore = {"cors_origins"}
     
     # Model Configuration
     # Path to the trained model weights directory  
@@ -66,6 +74,8 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        # Exclude cors_origins from environment variable parsing to avoid JSON issues
+        env_ignore = {"cors_origins"}
     
     def model_post_init(self, __context):
         """Set default paths after model initialization based on OS"""
