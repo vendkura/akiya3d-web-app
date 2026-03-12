@@ -38,7 +38,9 @@ class Settings(BaseSettings):
         "http://localhost:3000",  # Alternative dev port
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
-        # Add your production frontend URL here when deployed
+        # Production URLs - update these when you deploy
+        "https://*.vercel.app",  # All Vercel subdomains 
+        "https://*.netlify.app",  # All Netlify subdomains (backup)
     ]
     
     # Model Configuration

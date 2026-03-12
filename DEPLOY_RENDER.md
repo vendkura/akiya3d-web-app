@@ -37,8 +37,38 @@ MODEL_WEIGHTS_URL=https://your-model-download-url.com/best_model.pth
 CORS_ORIGINS=["https://your-frontend-domain.netlify.app"]
 ```
 
-### 5. Important Notes
-- Render automatically detects Python and installs dependencies
-- The `$PORT` environment variable is provided by Render
-- Model will be downloaded automatically on first build
-- Your backend URL: `https://your-backend-name.onrender.com`
+### 6. Frontend Configuration
+After backend is deployed, update your frontend's API URL to point to your Render backend URL.
+
+## Frontend Deployment on Vercel
+
+### 1. Build the Frontend
+```bash
+cd frontend
+npm run build
+```
+
+### 2. Deploy to Vercel
+1. **Go to vercel.com** → Import your GitHub repository
+2. **Framework Preset**: Vite
+3. **Root Directory**: `frontend` (IMPORTANT: Set this)
+4. **Build Command**: `npm run build` 
+5. **Output Directory**: `dist`
+
+### 3. Environment Variables in Vercel
+Add this environment variable in Vercel dashboard:
+```
+VITE_API_URL=https://your-backend-name.onrender.com
+```
+(Replace with your actual Render backend URL)
+
+### 4. Update Backend CORS
+After getting your Vercel URL, add it to your Render backend environment:
+```
+CORS_ORIGINS=["http://localhost:5173","https://your-app-name.vercel.app"]
+```
+
+### 5. Test the Connection
+1. Frontend will be at: `https://your-app-name.vercel.app`
+2. Backend will be at: `https://your-backend-name.onrender.com`
+3. Test by uploading a floorplan image!

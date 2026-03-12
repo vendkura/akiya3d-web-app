@@ -1,4 +1,5 @@
 import { ref, reactive, computed } from 'vue'
+import { API_ENDPOINTS } from '../config/api.js'
 
 /**
  * Composable for handling floorplan conversion API with SSE progress
@@ -84,7 +85,7 @@ export function useConversion() {
       formData.append('file', file.value)
       
       // Make SSE request
-      const response = await fetch('/api/v1/convert', {
+      const response = await fetch(API_ENDPOINTS.convert, {
         method: 'POST',
         body: formData,
       })
@@ -196,7 +197,7 @@ export function useConversion() {
   // Warmup the model on load
   async function warmup() {
     try {
-      await fetch('/api/v1/warmup', { method: 'POST' })
+      await fetch(API_ENDPOINTS.warmup, { method: 'POST' })
     } catch (e) {
       console.warn('Warmup failed:', e)
     }
