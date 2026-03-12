@@ -9,8 +9,11 @@ import platform
 
 
 def get_default_project_root() -> Path:
-    """Get default project root based on OS"""
-    if platform.system() == "Windows":
+    """Get default project root based on OS and environment"""
+    # Check if running in cloud environment (Render, Heroku, etc.)
+    if os.getenv("RENDER") or os.getenv("DYNO"):  # Render or Heroku
+        return Path("/opt/render/project/src")
+    elif platform.system() == "Windows":
         return Path(r"E:\github.com\akiya-3d-thesis")
     else:
         # WSL/Linux - Windows drives are mounted under /mnt/
@@ -27,20 +30,25 @@ class Settings(BaseSettings):
     
     # Server Settings
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = int(os.getenv("PORT", "8000"))  # Use PORT from environment (Render/Heroku) or default to 8000
     
     # CORS Settings (for Vue frontend)
     cors_origins: list[str] = [
         "http://localhost:5173",  # Vite dev server
-        "http://localhost:3000",
+        "http://localhost:3000",  # Alternative dev port
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
+        # Add your production frontend URL here when deployed
     ]
     
-    # Path Configuration - Override via .env file or environment variables
+    # Model Configuration
+    # Path to the trained model weights directory  
     project_root: Optional[Path] = None
     pipeline_path: Optional[Path] = None
     model_weights_path: Optional[Path] = None
+    
+    # Model weights URL for cloud deployment (if hosting model externally)
+    model_weights_url: Optional[str] = None
     
     # Output directories
     upload_dir: Path = Path("./uploads")
@@ -66,7 +74,21 @@ class Settings(BaseSettings):
         if self.pipeline_path is None:
             self.pipeline_path = self.project_root / "3D-Pipeline"
         if self.model_weights_path is None:
-            self.model_weights_path = self.project_root / "U-NET" / "scripts" / "model_output" / "fpn_62images" / "best_model.pth"
+            # Try multiple possible locations for model weights
+            possible_paths = [
+                self.project_root / "U-NET" / "scripts" / "model_output" / "fpn_62images" / "best_model.pth",
+                Path("./models/best_model.pth"),  # Local models folder
+                Path("./best_model.pth"),  # Root of backend folder
+            ]
+            
+            # Use first existing path or default to local models folder
+            for path in possible_paths:
+                if path.exists():
+                    self.model_weights_path = path
+                    break
+            else:
+                # Default to models folder (create if deployment needs it)
+                self.model_weights_path = Path("./models/best_model.pth")
     
     def setup_directories(self):
         """Create necessary directories if they don't exist"""
