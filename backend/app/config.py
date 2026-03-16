@@ -77,28 +77,37 @@ class Settings(BaseSettings):
     
     def model_post_init(self, __context):
         """Set default paths after model initialization based on OS"""
-        default_root = get_default_project_root()
+        # On Render/cloud, use local paths instead of trying to access project root
+        is_cloud = os.getenv("RENDER") or os.getenv("DYNO")
         
-        if self.project_root is None:
-            self.project_root = default_root
-        if self.pipeline_path is None:
-            self.pipeline_path = self.project_root / "3D-Pipeline"
-        if self.model_weights_path is None:
-            # Try multiple possible locations for model weights
-            possible_paths = [
-                self.project_root / "U-NET" / "scripts" / "model_output" / "fpn_62images" / "best_model.pth",
-                Path("./models/best_model.pth"),  # Local models folder
-                Path("./best_model.pth"),  # Root of backend folder
-            ]
-            
-            # Use first existing path or default to local models folder
-            for path in possible_paths:
-                if path.exists():
-                    self.model_weights_path = path
-                    break
-            else:
-                # Default to models folder (create if deployment needs it)
+        if is_cloud:
+            # On cloud deployment, use only local relative paths
+            if self.model_weights_path is None:
                 self.model_weights_path = Path("./models/best_model.pth")
+        else:
+            # Local development - use full project paths
+            default_root = get_default_project_root()
+            
+            if self.project_root is None:
+                self.project_root = default_root
+            if self.pipeline_path is None:
+                self.pipeline_path = self.project_root / "3D-Pipeline"
+            if self.model_weights_path is None:
+                # Try multiple possible locations for model weights
+                possible_paths = [
+                    self.project_root / "U-NET" / "scripts" / "model_output" / "fpn_62images" / "best_model.pth",
+                    Path("./models/best_model.pth"),  # Local models folder
+                    Path("./best_model.pth"),  # Root of backend folder
+                ]
+                
+                # Use first existing path or default to local models folder
+                for path in possible_paths:
+                    if path.exists():
+                        self.model_weights_path = path
+                        break
+                else:
+                    # Default to models folder (create if deployment needs it)
+                    self.model_weights_path = Path("./models/best_model.pth")
     
     def setup_directories(self):
         """Create necessary directories if they don't exist"""
