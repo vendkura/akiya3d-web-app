@@ -3,6 +3,7 @@ Configuration for the Floorplan 3D Pipeline API
 """
 from pathlib import Path
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import Optional
 import os
 import platform
@@ -34,16 +35,19 @@ class Settings(BaseSettings):
     
     # CORS Settings (for Vue frontend)
     # Don't set via environment variables - use code defaults
-    cors_origins: list[str] = [
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:3000",  # Alternative dev port
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-        # Production URLs - update these when you deploy
-        "https://*.vercel.app",  # All Vercel subdomains 
-        "https://*.netlify.app",  # All Netlify subdomains (backup)
-        "https://floorplan-3d-converter.vercel.app",  # Your specific frontend URL
-    ]
+    cors_origins: list[str] = Field(
+        default=[
+            "http://localhost:5173",  # Vite dev server
+            "http://localhost:3000",  # Alternative dev port
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3000",
+            # Production URLs - update these when you deploy
+            "https://*.vercel.app",  # All Vercel subdomains 
+            "https://*.netlify.app",  # All Netlify subdomains (backup)
+            "https://floorplan-3d-converter.vercel.app",  # Your specific frontend URL
+        ],
+        env=None
+    )
     
     # Model Configuration
     # Path to the trained model weights directory  
