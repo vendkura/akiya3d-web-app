@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     
     # Check model weights
     try:
-        from download_model import check_model_weights
+        from app.download_model import check_model_weights
         model_ready = check_model_weights()
         if model_ready:
             print("✅ Model weights are ready!")
