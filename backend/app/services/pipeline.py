@@ -21,7 +21,7 @@ from app.utils.sse import (
 )
 
 # Add pipeline path to sys.path for imports
-sys.path.insert(0, str(settings.pipeline_path))
+# sys.path.insert(0, str(settings.pipeline_path))
 
 
 class PipelineService:
@@ -57,7 +57,7 @@ class PipelineService:
         if not settings.model_weights_path.exists():
             print("❌ Model weights not found! Attempting download...")
             try:
-                from download_model import download_model_weights
+                from app.download_model import download_model_weights
                 success = download_model_weights()
                 if not success:
                     raise FileNotFoundError(f"Model weights not found: {settings.model_weights_path}")
@@ -66,7 +66,7 @@ class PipelineService:
         
         # Import pipeline modules
         try:
-            from fpn_inference import FPNInference
+            from app.services.fpn_inference import FPNInference
             print("✅ Pipeline modules imported successfully")
         except ImportError as e:
             raise ImportError(f"Failed to import pipeline modules: {e}")
@@ -154,9 +154,9 @@ class PipelineService:
             print("✅ Pipeline initialized for processing")
             
             # Import pipeline v5 modules (after path is set)
-            from segmentation_postprocess import SegmentationPostProcessor
-            from rectangular_room_fitter import RectangularRoomFitter
-            from wall_based_extrusion import WallDetector, WallBasedExtruder, WallOBJExporter
+            from app.services.segmentation_postprocess import SegmentationPostProcessor
+            from app.services.rectangular_room_fitter import RectangularRoomFitter
+            from app.services.wall_based_extrusion import WallDetector, WallBasedExtruder, WallOBJExporter
             print("✅ Pipeline modules imported for processing")
             
             loop = asyncio.get_event_loop()
