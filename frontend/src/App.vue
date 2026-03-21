@@ -20,6 +20,9 @@
           :file="conversion.file.value"
           :can-process="conversion.canProcess.value"
           :is-processing="conversion.isProcessing.value"
+          :server-ready="conversion.serverReady.value"
+          :is-checking-server="conversion.isCheckingServer.value"
+          :server-message="conversion.serverMessage.value"
           @file-change="conversion.setFile"
           @process="conversion.processFile"
           @reset="conversion.reset"
@@ -60,6 +63,6 @@ const mtlUrl = computed(() => conversion.result.value?.mtl_url || null)
 
 // Warmup model on app load for faster first conversion
 onMounted(() => {
-  conversion.warmup()
+  conversion.checkHealth()
 })
 </script>

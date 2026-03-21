@@ -13,6 +13,9 @@ export function useConversion() {
   const isComplete = ref(false)
   const error = ref(null)
   const result = ref(null)
+  const serverReady = ref(false)
+  const isCheckingServer = ref(false)
+  const serverMessage = ref('Checking server...')
   
   // Steps state - Pipeline v5 steps
   const steps = reactive({
@@ -33,7 +36,8 @@ export function useConversion() {
   ]
   
   // Computed
-  const canProcess = computed(() => file.value && !isProcessing.value)
+  // const canProcess = computed(() => file.value && !isProcessing.value)
+  const canProcess = computed(() => file.value && !isProcessing.value && serverReady.value)
   
   const currentStep = computed(() => {
     for (const def of stepDefinitions) {
@@ -210,6 +214,38 @@ export function useConversion() {
       console.warn('Warmup failed:', e)
     }
   }
+  //
+  async function checkHealth() {
+  isCheckingServer.value = true
+  serverReady.value = false
+  serverMessage.value = 'Warming up server...'
+
+  const maxAttempts = 10
+  const interval = 5000 // 5 seconds between checks
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const res = await fetch(API_ENDPOINTS.health)
+      const data = await res.json()
+      if (data.model_weights?.exists === true) {
+        serverReady.value = true
+        serverMessage.value = 'Server ready ✅'
+        isCheckingServer.value = false
+        return
+      } else {
+        serverMessage.value = `Downloading model... (${attempt + 1}/${maxAttempts})`
+      }
+    } catch (e) {
+      serverMessage.value = `Server unreachable, retrying... (${attempt + 1}/${maxAttempts})`
+    }
+    await new Promise(resolve => setTimeout(resolve, interval))
+  }
+
+  serverMessage.value = 'Server unavailable ⚠️'
+  isCheckingServer.value = false
+}
+
+  
   
   return {
     // State
@@ -231,5 +267,10 @@ export function useConversion() {
     reset,
     processFile,
     warmup,
+    //
+    serverReady,
+    isCheckingServer,
+    serverMessage,
+    checkHealth,
   }
 }

@@ -32,6 +32,15 @@
           <div class="upload-hint">PNG or JPG, max 10MB</div>
         </template>
       </div>
+
+      <div 
+        class="server-status"
+        :class="{ ready: serverReady, checking: isCheckingServer, unavailable: !serverReady && !isCheckingServer }"
+      >
+        <span v-if="isCheckingServer" class="spinner"></span>
+        <span v-else>{{ serverReady ? '🟢' : '🔴' }}</span>
+        {{ serverMessage }}
+      </div>
       
       <!-- Actions -->
       <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
@@ -66,6 +75,9 @@ const props = defineProps({
   file: Object,
   canProcess: Boolean,
   isProcessing: Boolean,
+  serverReady: Boolean,
+  isCheckingServer: Boolean,
+  serverMessage: String,
 })
 
 const emit = defineEmits(['file-change', 'process', 'reset'])
