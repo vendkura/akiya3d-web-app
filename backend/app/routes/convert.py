@@ -20,13 +20,8 @@ async def convert_floorplan(file: UploadFile = File(...)):
     """
     Convert a 2D floorplan image to 3D model.
     
-    Returns an SSE stream with progress updates for each step:
-    - segmentation: FPN inference with mask preview
-    - boundary: Room/wall extraction with boundary preview
-    - extrusion: 3D geometry generation
-    - export: OBJ/MTL file creation
-    
-    Final event contains download URLs for all generated files.
+    Returns an SSE stream with progress updates for each step.
+    Sends an immediate acknowledgment event to prevent proxy timeouts.
     """
     # Validate file type
     allowed_types = ["image/png", "image/jpeg", "image/jpg"]
@@ -55,6 +50,13 @@ async def convert_floorplan(file: UploadFile = File(...)):
     # Return SSE stream
     async def event_generator():
         try:
+            # Send immediate acknowledgment so Render proxy sees a response fast
+            yield {"data": json.dumps({
+                "type": "ack",
+                "job_id": job_id,
+                "message": "Job accepted, starting pipeline..."
+            })}
+            
             print(f"🎬 Starting SSE generator for job: {job_id}")
             async for event_data in pipeline_service.process_image(
                 image_path=upload_path,
@@ -62,13 +64,11 @@ async def convert_floorplan(file: UploadFile = File(...)):
                 output_dir=job_output_dir
             ):
                 print(f"📡 Sending SSE event: {event_data.get('type', 'unknown')}")
-                # EventSourceResponse expects dict with 'data' key or just the data
                 yield {"data": json.dumps(event_data)}
         except Exception as e:
             print(f"❌ Error in SSE generator: {e}")
             import traceback
             traceback.print_exc()
-            # Send error event
             error_event = {
                 "type": "error",
                 "job_id": job_id,
@@ -77,7 +77,10 @@ async def convert_floorplan(file: UploadFile = File(...)):
             }
             yield {"data": json.dumps(error_event)}
     
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(
+        event_generator(),
+        ping=15,  # Send SSE ping every 15s to keep connection alive
+    )
 
 
 @router.get("/download/{job_id}/{filename}")

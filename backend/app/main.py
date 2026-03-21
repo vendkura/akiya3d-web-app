@@ -1,6 +1,7 @@
 """
 Floorplan 3D Pipeline API - Main Application
 """
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -14,6 +15,7 @@ from app.routes import convert_router
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for startup/shutdown events.
+    Pre-loads the model so the first convert request doesn't timeout.
     """
     # Startup
     print(f"🚀 Starting {settings.app_name} v{settings.app_version}")
@@ -35,6 +37,20 @@ async def lifespan(app: FastAPI):
             print("⚠️ Model weights not found - processing will fail!")
     except Exception as e:
         print(f"❌ Error checking model weights: {e}")
+    
+    # Pre-load the model at startup (background task)
+    # This way the first /convert request won't spend time loading
+    async def warmup():
+        try:
+            from app.services.pipeline import pipeline_service
+            print("🔥 Warming up model at startup...")
+            await pipeline_service.initialize()
+            print("✅ Model pre-loaded and ready!")
+        except Exception as e:
+            print(f"⚠️ Startup warmup failed (will retry on first request): {e}")
+    
+    # Fire and forget - don't block startup
+    asyncio.create_task(warmup())
     
     yield
     
@@ -62,9 +78,6 @@ app.add_middleware(
 # Include routers
 app.include_router(convert_router)
 
-# Serve static files (outputs) - optional, for direct file access
-# app.mount("/files", StaticFiles(directory=settings.output_dir), name="files")
-
 
 @app.get("/")
 async def root():
@@ -84,8 +97,7 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Detailed health check endpoint"""
-    import os
-    from pathlib import Path
+    from app.services.pipeline import pipeline_service
     
     model_exists = settings.model_weights_path.exists() if settings.model_weights_path else False
     
@@ -104,5 +116,9 @@ async def health_check():
             "debug": settings.debug,
             "has_model_url": bool(settings.model_weights_url),
             "device": settings.get_device().type
+        },
+        "pipeline": {
+            "initialized": pipeline_service._initialized,
+            "initializing": pipeline_service._initializing
         }
     }

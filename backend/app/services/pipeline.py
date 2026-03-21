@@ -5,6 +5,7 @@ Uses: main_pipeline_v5.py components for proper wall-based extrusion
 import sys
 import asyncio
 import base64
+import time
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 import numpy as np
@@ -20,21 +21,19 @@ from app.utils.sse import (
     StepStatus
 )
 
-# Add pipeline path to sys.path for imports
-# sys.path.insert(0, str(settings.pipeline_path))
-
 
 class PipelineService:
     """
-    Service class that orchestrates the 2D→3D conversion pipeline v5.
-    Uses Dollhouse-style wall-based extrusion for proper architectural models.
+    Service class that orchestrates the 2D->3D conversion pipeline v5.
     Yields SSE events for real-time progress updates.
+    Sends keepalive events during long CPU-bound operations to prevent proxy timeouts.
     """
     
     def __init__(self):
         self.fpn_model = None
         self.device = None
         self._initialized = False
+        self._initializing = False  # Prevent concurrent init
         
         # Pipeline v5 parameters
         self.postprocess_min_area = 2000
@@ -49,47 +48,62 @@ class PipelineService:
         if self._initialized:
             return
         
-        print(f"🔧 Initializing pipeline v5...")
-        print(f"📍 Model path: {settings.model_weights_path}")
-        print(f"📍 Model exists: {settings.model_weights_path.exists()}")
+        if self._initializing:
+            # Another request is already initializing, wait for it
+            while self._initializing:
+                await asyncio.sleep(0.5)
+            return
         
-        # Check if model weights exist
-        if not settings.model_weights_path.exists():
-            print("❌ Model weights not found! Attempting download...")
+        self._initializing = True
+        
+        try:
+            print(f"🔧 Initializing pipeline v5...")
+            print(f"📍 Model path: {settings.model_weights_path}")
+            print(f"📍 Model exists: {settings.model_weights_path.exists()}")
+            
+            # Check if model weights exist
+            if not settings.model_weights_path.exists():
+                print("❌ Model weights not found! Attempting download...")
+                try:
+                    from app.download_model import download_model_weights
+                    success = download_model_weights()
+                    if not success:
+                        raise FileNotFoundError(f"Model weights not found: {settings.model_weights_path}")
+                except Exception as e:
+                    raise FileNotFoundError(f"Failed to download model weights: {e}")
+            
+            # Import pipeline modules
             try:
-                from app.download_model import download_model_weights
-                success = download_model_weights()
-                if not success:
-                    raise FileNotFoundError(f"Model weights not found: {settings.model_weights_path}")
+                from app.services.fpn_inference import FPNInference
+                print("✅ Pipeline modules imported successfully")
+            except ImportError as e:
+                raise ImportError(f"Failed to import pipeline modules: {e}")
+            
+            self.device = settings.get_device()
+            print(f"🖥️ Initializing on device: {self.device}")
+            
+            # Load model in thread pool so we don't block the event loop
+            # (FPNInference.__init__ does torch.load + model.to() which is heavy)
+            try:
+                loop = asyncio.get_event_loop()
+                self.fpn_model = await loop.run_in_executor(
+                    None,
+                    lambda: FPNInference(
+                        model_path=str(settings.model_weights_path),
+                        device=self.device
+                    )
+                )
+                print("✅ FPN model loaded successfully")
             except Exception as e:
-                raise FileNotFoundError(f"Failed to download model weights: {e}")
-        
-        # Import pipeline modules
-        try:
-            from app.services.fpn_inference import FPNInference
-            print("✅ Pipeline modules imported successfully")
-        except ImportError as e:
-            raise ImportError(f"Failed to import pipeline modules: {e}")
-        
-        self.device = settings.get_device()
-        print(f"🖥️ Initializing on device: {self.device}")
-        
-        # Load model
-        try:
-            self.fpn_model = FPNInference(
-                model_path=str(settings.model_weights_path),
-                device=self.device
-            )
-            print("✅ FPN model loaded successfully")
-        except Exception as e:
-            raise RuntimeError(f"Failed to load FPN model: {e}")
-        
-        self._initialized = True
-        print("🎉 Pipeline initialized successfully!")
+                raise RuntimeError(f"Failed to load FPN model: {e}")
+            
+            self._initialized = True
+            print("🎉 Pipeline initialized successfully!")
+        finally:
+            self._initializing = False
     
     def _mask_to_preview_base64(self, mask: np.ndarray) -> str:
         """Convert segmentation mask to colored preview image (base64)"""
-        # Color palette for 13 classes
         COLORS = [
             [255, 179, 186],  # dining_area - pink
             [186, 255, 201],  # bathroom - mint
@@ -106,14 +120,12 @@ class PipelineService:
             [152, 251, 152],  # balcony - pale green
         ]
         
-        # Create colored image
         h, w = mask.shape
         colored = np.zeros((h, w, 3), dtype=np.uint8)
         
         for class_id, color in enumerate(COLORS):
             colored[mask == class_id] = color
         
-        # Convert to base64
         _, buffer = cv2.imencode('.png', cv2.cvtColor(colored, cv2.COLOR_RGB2BGR))
         return base64.b64encode(buffer).decode('utf-8')
     
@@ -122,38 +134,79 @@ class PipelineService:
         h, w = mask.shape
         preview = np.zeros((h, w, 3), dtype=np.uint8)
         
-        # Draw room polygons
         for room in rooms:
             vertices = np.array(room['vertices'], dtype=np.int32)
             color = room.get('color', [200, 200, 200])
             cv2.fillPoly(preview, [vertices], color)
             cv2.polylines(preview, [vertices], True, (255, 255, 255), 2)
         
-        # Convert to base64
         _, buffer = cv2.imencode('.png', preview)
         return base64.b64encode(buffer).decode('utf-8')
+    
+    async def _run_with_keepalive(self, executor_func, *args, step_name="processing"):
+        """
+        Run a CPU-bound function in thread pool while yielding keepalive events.
+        This prevents Render's proxy from timing out during long operations.
+        
+        Returns: (result, list_of_keepalive_events)
+        """
+        loop = asyncio.get_event_loop()
+        keepalive_events = []
+        
+        # Create a future for the CPU-bound work
+        future = loop.run_in_executor(None, executor_func, *args)
+        
+        start_time = time.time()
+        while not future.done():
+            await asyncio.sleep(3)  # Check every 3 seconds
+            if not future.done():
+                elapsed = int(time.time() - start_time)
+                keepalive_events.append(create_step_event(
+                    step_name,
+                    StepStatus.RUNNING,
+                    progress=min(90, elapsed * 3),  # Rough progress estimate
+                    message=f"Processing... ({elapsed}s)"
+                ))
+        
+        result = future.result()
+        return result, keepalive_events
     
     async def process_image(
         self, 
         image_path: Path, 
         job_id: str,
         output_dir: Path
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[dict, None]:
         """
         Process a floorplan image through the full pipeline v5.
-        Uses Dollhouse-style wall-based extrusion.
-        Yields SSE events for each step.
+        Yields SSE events for each step, with keepalive during long operations.
         """
         try:
             print(f"🚀 Starting processing for job: {job_id}")
             print(f"📁 Image path: {image_path}")
             print(f"📁 Output dir: {output_dir}")
             
-            # Ensure initialized
-            await self.initialize()
-            print("✅ Pipeline initialized for processing")
+            # ========== INITIALIZATION ==========
+            if not self._initialized:
+                yield create_step_event(
+                    "init",
+                    StepStatus.RUNNING,
+                    progress=0,
+                    message="Loading AI model (first request may take a moment)..."
+                )
+                
+                await self.initialize()
+                
+                yield create_step_event(
+                    "init",
+                    StepStatus.COMPLETED,
+                    progress=100,
+                    message="Model loaded successfully"
+                )
             
-            # Import pipeline v5 modules (after path is set)
+            print("✅ Pipeline ready for processing")
+            
+            # Import pipeline v5 modules
             from app.services.segmentation_postprocess import SegmentationPostProcessor
             from app.services.rectangular_room_fitter import RectangularRoomFitter
             from app.services.wall_based_extrusion import WallDetector, WallBasedExtruder, WallOBJExporter
@@ -169,12 +222,16 @@ class PipelineService:
                 message="Running FPN inference..."
             )
             
-            # Run inference (CPU-bound, run in thread pool)
-            raw_mask, original_shape, classes_present = await loop.run_in_executor(
-                None,
+            # Run inference with keepalive to prevent timeout
+            (raw_mask, original_shape, classes_present), keepalives = await self._run_with_keepalive(
                 self.fpn_model.infer,
-                str(image_path)
+                str(image_path),
+                step_name="segmentation"
             )
+            
+            # Yield any keepalive events that were generated
+            for event in keepalives:
+                yield event
             
             # Generate preview
             mask_preview = self._mask_to_preview_base64(raw_mask)
@@ -209,7 +266,6 @@ class PipelineService:
             )
             clean_mask = await loop.run_in_executor(None, postprocessor.process, raw_mask)
             
-            # Save clean mask
             clean_mask_path = output_dir / f"{job_id}_mask_clean.png"
             cv2.imwrite(str(clean_mask_path), clean_mask)
             
@@ -240,7 +296,6 @@ class PipelineService:
                 final_mask = await loop.run_in_executor(None, fitter.fit_mask, clean_mask)
                 summary = fitter.get_summary()
                 
-                # Save fitted mask
                 rect_mask_path = output_dir / f"{job_id}_mask_rectangular.png"
                 cv2.imwrite(str(rect_mask_path), final_mask)
                 
@@ -260,18 +315,16 @@ class PipelineService:
                     message="Rectangular fitting skipped"
                 )
             
-            # Save final mask as the main mask output
+            # Save final mask
             mask_path = output_dir / f"{job_id}_mask.png"
             cv2.imwrite(str(mask_path), final_mask)
             
             # ========== STEP 4: CALCULATE SCALE ==========
-            # Calculate scale factor based on mask size
             non_zero = np.argwhere(final_mask > 0)
             if len(non_zero) > 0:
                 min_y, min_x = non_zero.min(axis=0)
                 max_y, max_x = non_zero.max(axis=0)
                 width_px = max_x - min_x
-                # Assume total width is about 12 meters for typical Japanese house
                 scale_factor = 12.0 / width_px if width_px > 0 else 0.01
             else:
                 scale_factor = 0.01
@@ -284,7 +337,6 @@ class PipelineService:
                 message="Detecting walls and generating 3D geometry..."
             )
             
-            # Detect walls
             detector = WallDetector(
                 wall_thickness=self.wall_thickness,
                 min_wall_length=self.min_wall_length
@@ -293,14 +345,11 @@ class PipelineService:
                 None, detector.detect_from_mask, final_mask, scale_factor
             )
             
-            # Extrude walls
             extruder = WallBasedExtruder(
                 wall_thickness=self.wall_thickness,
                 wall_height=self.wall_height
             )
             await loop.run_in_executor(None, extruder.extrude_walls, walls)
-            
-            # Add colored floor
             await loop.run_in_executor(None, extruder.add_colored_floor, final_mask, scale_factor)
             
             geometry = extruder.get_geometry()
